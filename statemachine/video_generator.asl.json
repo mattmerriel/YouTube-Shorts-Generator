@@ -1,0 +1,162 @@
+{
+    "Comment": "A state machine that produces videos for publication.",
+    "StartAt": "Prepare Job",
+    "States": {
+        "Prepare Job": {
+            "Type": "Task",
+            "Resource": "${PrepareJobFunctionArn}",
+            "Next": "Generate Script"
+        },
+        "Generate Script": {
+            "Type": "Task",
+            "Resource": "${GenerateScriptFunctionArn}",
+            "Next": "Procees Script"
+        },
+        "Procees Script": {
+            "Type": "Parallel",
+            "Next": "Generate Frame Schedule",
+            "Branches": [
+                {
+                    "StartAt": "Generate Scene List",
+                    "States": {
+                        "Generate Scene List": {
+                            "Type": "Task",
+                            "Resource": "${GenerateSceneListFunctionArn}",
+                            "Next": "Scene Map"
+                        },
+                        "Scene Map": {
+                            "Type": "Map",
+                            "End": true,
+                            "InputPath": "$.Scenes",
+                            "ItemProcessor": {
+                                "ProcessorConfig": {
+                                    "Mode": "INLINE"
+                                },
+                                "StartAt": "Generate Scene Images",
+                                "States": {
+                                    "Generate Scene Images": {
+                                        "Type": "Task",
+                                        "Resource": "${GenerateSceneImagesFunctionArn}",
+                                        "End": true
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "StartAt": "Generate Polly Payload",
+                    "States": {
+                        "Generate Polly Payload": {
+                            "Type": "Task",
+                            "Resource": "${GeneratePollyPayloadFunctionArn}",
+                            "Next": "Generate Voice Assets"
+                        },
+                        "Generate Voice Assets": {
+                            "Type": "Parallel",
+                            "End": true,
+                            "Branches": [
+                                {
+                                    "StartAt": "Generate VoiceOver",
+                                    "States": {
+                                        "Generate VoiceOver": {
+                                            "Type": "Task",
+                                            "Resource": "${GenerateVoiceOverFunctionArn}",
+                                            "End": true
+                                        }
+                                    }
+                                },
+                                {
+                                    "StartAt": "Generate Voice Marks",
+                                    "States": {
+                                        "Generate Voice Marks": {
+                                            "Type": "Task",
+                                            "Resource": "${GenerateVoiceMarksFunctionArn}",
+                                            "End": true
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            ]
+        },
+        "Generate Frame Schedule": {
+            "Type": "Task",
+            "InputPath": "$[1][1]",
+            "Resource": "${GenerateFrameScheduleFunctionArn}",
+            "Next": "Generate Frames"
+        },
+        "Generate Frames": {
+            "Type": "Map", 
+            "ItemProcessor": {
+              "ProcessorConfig": {
+                "Mode": "DISTRIBUTED",
+                "ExecutionType": "EXPRESS"
+              },
+              "StartAt": "Generate Frame",
+              "States": {
+                "Generate Frame": {
+                  "Type": "Task",
+                  "Resource": "arn:aws:states:::lambda:invoke",
+                  "OutputPath": "$.Payload",
+                  "Parameters": {
+                    "Payload.$": "$",
+                    "FunctionName": "${GenerateFrameFunctionArn}"
+                  },
+                  "Retry": [
+                    {
+                      "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException",
+                        "Lambda.TooManyRequestsException"
+                      ],
+                      "IntervalSeconds": 30,
+                      "MaxAttempts": 6,
+                      "BackoffRate": 2
+                    }
+                  ],
+                  "End": true
+                }
+              }
+            },
+            "Next": "Generate Assets From Script",
+            "Label": "Map",
+            "MaxConcurrency": 600,
+            "ItemReader": {
+              "Resource": "arn:aws:states:::s3:getObject",
+              "ReaderConfig": {
+                "InputType": "CSV",
+                "CSVHeaderLocation": "FIRST_ROW"
+              },
+              "Parameters": {
+                "Bucket.$": "$.Schedule_Details.Bucket_Name",
+                "Key.$": "$.Schedule_Details.File_Name"
+              }
+            },
+            "ItemBatcher": {
+              "MaxItemsPerBatch": 50,
+              "MaxInputBytesPerBatch": 102400
+            },
+            "ResultWriter": {
+              "Resource": "arn:aws:states:::s3:putObject",
+              "Parameters": {
+                "Bucket.$": "$.Schedule_Details.Bucket_Name",
+                "Prefix.$": "$.Job_Id"
+              }
+            },
+            "ResultPath": "$.JobDetails.MapKey"
+          },   
+        "Generate Assets From Script": {
+            "Type": "Task",
+            "Resource": "${GenerateAssetsFromScriptFunctionArn}",
+            "Next": "End StateMachine"
+        },      
+        "End StateMachine": {
+            "Type": "Pass",
+            "End": true
+        }        
+    }
+}

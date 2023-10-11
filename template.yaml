@@ -1,0 +1,260 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  youtube-short-generator
+
+  Sample SAM Template for youtube-short-generator
+
+# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 128
+
+Resources:
+###################
+###  S3 Buckets ###
+###################
+  ArtefactBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      AccessControl: BucketOwnerFullControl
+      VersioningConfiguration:
+        Status: Enabled
+
+  OutputBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      AccessControl: BucketOwnerFullControl
+      VersioningConfiguration:
+        Status: Enabled
+
+#####################
+### State Machine ###
+#####################  
+
+  VideoProductionStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      DefinitionUri: statemachine/video_generator.asl.json
+      DefinitionSubstitutions:
+        PrepareJobFunctionArn: !GetAtt PrepareJobFunction.Arn
+        GenerateScriptFunctionArn: !GetAtt GenerateScriptFunction.Arn
+        GenerateSceneListFunctionArn: !GetAtt GenerateSceneListFunction.Arn
+        GenerateSceneImagesFunctionArn: !GetAtt GenerateSceneImagesFunction.Arn
+        GeneratePollyPayloadFunctionArn: !GetAtt GeneratePollyPayloadFunction.Arn
+        GenerateVoiceOverFunctionArn: !GetAtt GenerateVoiceOverFunction.Arn
+        GenerateVoiceMarksFunctionArn: !GetAtt GenerateVoiceMarksFunction.Arn
+        GenerateFrameScheduleFunctionArn: !GetAtt GenerateFrameScheduleFunction.Arn
+        GenerateFrameFunctionArn: !GetAtt GenerateFrameFunction.Arn
+        GenerateAssetsFromScriptFunctionArn: !GetAtt GenerateAssetsFromScriptFunction.Arn
+      Policies: 
+        - LambdaInvokePolicy:
+            FunctionName: !Ref PrepareJobFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref GenerateScriptFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref GenerateSceneListFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref GenerateSceneImagesFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref GeneratePollyPayloadFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref GenerateVoiceOverFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref GenerateVoiceMarksFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref GenerateFrameScheduleFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref GenerateFrameFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref GenerateAssetsFromScriptFunction
+        - StepFunctionsExecutionPolicy:
+            StateMachineName: '*'  
+        - S3CrudPolicy:
+            BucketName:
+              !Ref ArtefactBucket
+
+########################
+### Lambda Functions ###
+########################
+
+  PrepareJobFunction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: functions/Prepare_Job/
+      Handler: app.lambda_handler
+      Runtime: python3.11
+      Architectures:
+        - x86_64
+
+  GenerateScriptFunction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: functions/Generate_Script/
+      Environment:
+        Variables:
+          ArtefactBucket: !Ref ArtefactBucket
+      Handler: app.lambda_handler
+      Runtime: python3.11
+      Architectures:
+        - x86_64
+      Policies:
+        - AWSLambdaExecute
+        - Version: '2012-10-17' 
+          Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource: 'arn:aws:bedrock:us-east-1::foundation-model/ai21.j2-ultra-v1' 
+
+  GenerateAssetsFromScriptFunction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: functions/Generate_Assets_From_Script/
+      Environment:
+        Variables:
+          ArtefactBucket: !Ref ArtefactBucket
+      Handler: app.lambda_handler
+      Runtime: python3.11
+      Architectures:
+        - x86_64
+
+  GenerateSceneListFunction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: functions/Generate_Scene_List/
+      Handler: app.lambda_handler
+      Runtime: python3.11
+      Architectures:
+        - x86_64
+      Policies: 
+        - S3CrudPolicy:
+            BucketName:
+              !Ref ArtefactBucket
+
+  GenerateSceneImagesFunction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: functions/Generate_Scene_Images/
+      Environment:
+        Variables:
+          ArtefactBucket: !Ref ArtefactBucket
+      Handler: app.lambda_handler
+      Runtime: python3.11
+      Architectures:
+        - x86_64
+      Policies: 
+        - S3CrudPolicy:
+            BucketName:
+              !Ref ArtefactBucket
+        - AWSLambdaExecute
+        - Version: '2012-10-17' 
+          Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource: '*' 
+
+  GeneratePollyPayloadFunction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: functions/Generate_Polly_Payload/
+      Environment:
+        Variables:
+          ArtefactBucket: !Ref ArtefactBucket
+      Handler: app.lambda_handler
+      Runtime: python3.11
+      Architectures:
+        - x86_64
+      Policies: 
+        - S3CrudPolicy:
+            BucketName:
+              !Ref ArtefactBucket
+
+  GenerateVoiceOverFunction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: functions/Generate_VoiceOver/
+      Environment:
+        Variables:
+          ArtefactBucket: !Ref ArtefactBucket
+      Handler: app.lambda_handler
+      Runtime: python3.11
+      Architectures:
+        - x86_64
+      Policies: 
+        - S3CrudPolicy:
+            BucketName:
+              !Ref ArtefactBucket
+        - Version: '2012-10-17' 
+          Statement:
+            - Effect: Allow
+              Action:
+                - polly:SynthesizeSpeech
+              Resource: '*' 
+
+  GenerateVoiceMarksFunction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: functions/Generate_Voice_Marks/
+      Environment:
+        Variables:
+          ArtefactBucket: !Ref ArtefactBucket
+      Handler: app.lambda_handler
+      Runtime: python3.11
+      Architectures:
+        - x86_64
+      Policies: 
+        - S3CrudPolicy:
+            BucketName:
+              !Ref ArtefactBucket
+        - Version: '2012-10-17' 
+          Statement:
+            - Effect: Allow
+              Action:
+                - polly:SynthesizeSpeech
+              Resource: '*' 
+
+  GenerateFrameScheduleFunction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: functions/Generate_Frame_Schedule/
+      Environment:
+        Variables:
+          ArtefactBucket: !Ref ArtefactBucket
+      Handler: app.lambda_handler
+      Runtime: python3.11
+      Architectures:
+        - x86_64
+      Policies: 
+        - S3CrudPolicy:
+            BucketName:
+              !Ref ArtefactBucket
+
+  GenerateFrameFunction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: functions/Generate_Frame/
+      Environment:
+        Variables:
+          ArtefactBucket: !Ref ArtefactBucket
+      Handler: app.lambda_handler
+      MemorySize: 3008
+      Runtime: python3.11
+      Architectures:
+        - x86_64
+      Timeout: 900
+      Policies: 
+        - S3CrudPolicy:
+            BucketName:
+              !Ref ArtefactBucket
+
+Outputs:
+########################
+### Lambda Functions ###
+########################
+
+  GenerateScriptFunction:
+    Description: "Generate Script Lambda Function ARN"
+    Value: !GetAtt GenerateScriptFunction.Arn
